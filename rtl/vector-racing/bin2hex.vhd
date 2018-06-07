@@ -1,16 +1,3 @@
--------------------------------------------------------------------------------
--- Title      : MC613
--- Project    : Vector Racing
--------------------------------------------------------------------------------
--- File       : bin2hex.vhd
--- Author     : Andre de Souza Goncalves
--- Company    : IC - UNICAMP
--- Last update: 2018/05/10
--------------------------------------------------------------------------------
--- Description:
--- Decodes 4 bit binary entry to be displayed on a HEX based segment display.
--------------------------------------------------------------------------------
-
 LIBRARY ieee;
 
 USE ieee.std_logic_1164.all;
@@ -18,14 +5,14 @@ USE ieee.std_logic_1164.all;
 ENTITY bin2hex IS
 	PORT (
 		SW: IN std_logic_vector(3 DOWNTO 0);
-		HEX0: OUT std_logic_vector(6 DOWNTO 0)
+		HEX: OUT std_logic_vector(6 DOWNTO 0)
 	);
 END bin2hex;
 
 ARCHITECTURE Converter OF bin2hex IS
 BEGIN
 		WITH SW SELECT 
-			HEX0 <= 	"1000000" WHEN "0000", -- 0
+			HEX <= 	"1000000" WHEN "0000", -- 0
 						"1111001" WHEN "0001", -- 1
 						"0100100" WHEN "0010", -- 2
 						"0110000" WHEN "0011", -- 3

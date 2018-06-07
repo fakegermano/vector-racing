@@ -44,9 +44,6 @@ LIBRARY ieee;
 USE ieee.std_logic_1164.all;
 USE ieee.numeric_std.all;
 
-library input;
-use input.input_pack.all;
-
 entity kbdex_ctrl is
 	generic(
 		clkfreq : integer
@@ -64,6 +61,23 @@ entity kbdex_ctrl is
 end;
 
 architecture rtl of kbdex_ctrl is
+	component ps2_iobase
+		generic(
+			clkfreq : integer	-- This is the system clock value in kHz
+		);
+		port(
+			ps2_data	:	inout	std_logic;
+			ps2_clk		:	inout	std_logic;
+			clk				:	in	std_logic;
+			en				:	in	std_logic;
+			resetn		:	in	std_logic;
+			idata_rdy	:	in	std_logic;
+			idata			:	in	std_logic_vector(7 downto 0);
+			send_rdy	:	out	std_logic;
+			odata_rdy	:	out	std_logic;
+			odata			:	out	std_logic_vector(7 downto 0)
+		);
+	end component;
 
 	type statename is (
 		IDLE, FETCH, DECODE, CODE,
