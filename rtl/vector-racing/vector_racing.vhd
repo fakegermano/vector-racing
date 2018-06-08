@@ -13,12 +13,10 @@ entity vector_racing is
 		VGA_CLK                   	: out std_logic;
 		PS2_DAT 							: inout STD_LOGIC;
 		PS2_CLK 							: inout STD_LOGIC;
-		-- DEBUG
-		LEDR								: out std_logic_vector(9 downto 0);
-		HEX0								: out std_logic_vector(6 downto 0);
-		HEX1								: out std_logic_vector(6 downto 0);
-		HEX2								: out std_logic_vector(6 downto 0);
-		HEX3								: out std_logic_vector(6 downto 0)
+		HEX0, HEX1						: out std_logic_vector(6 downto 0);
+		HEX2, HEX3						: out std_logic_vector(6 downto 0);
+		HEX4, HEX5						: out std_logic_vector(6 downto 0);
+		LEDR								: out std_logic_vector(9 downto 0)
 	);
 end vector_racing;
 
@@ -54,8 +52,9 @@ architecture rtl of vector_racing is
 	signal pos_x : integer range 0 to 127 := 30;  -- coluna atual da bola
 	signal pos_y : integer range 0 to 95 := 30;   -- linha atual da bola
 	
-	signal vel_vector : velocity_t := ZERO_V;
+	signal vel_vector : velocity_t := SOME_V;
 	signal vel_vector_q : velocity_t := ZERO_V;
+	signal vel_w, vel_s, vel_a, vel_d : velocity_t := ZERO_V;
 	-- Especificação dos tipos e sinais da máquina de estados de controle
 	type estado_t is (show_splash, inicio, constroi_quadro, move_bola);
 	signal estado: estado_t := show_splash;
@@ -83,17 +82,17 @@ architecture rtl of vector_racing is
 	signal get_velocity : std_logic;
 	signal change_pos_q: std_logic;
 	signal change_pos: std_logic;
+	
+	signal choice : std_logic_vector(2 downto 0);
 begin 
 	-- DEBUG
-	LEDR(0) <= key_on(0);
-	LEDR(1) <= key_on(1);
-	LEDR(2) <= key_on(2);
-	LEDR(3) <= get_velocity;
-	LEDR(4) <= change_pos;
-	debug_1: work.bin2hex port map (SW => std_logic_vector(vel_vector(0))(3 downto 0), HEX => HEX0);
-	debug_2: work.bin2hex port map (SW => std_logic_vector(vel_vector(1))(3 downto 0), HEX => HEX1);
-	debug_3: work.bin2hex port map (SW => std_logic_vector(vel_vector_q(0))(3 downto 0), HEX => HEX2);
-	debug_4: work.bin2hex port map (SW => std_logic_vector(vel_vector_q(1))(3 downto 0), HEX => HEX3);
+	deb0: work.bin2hex port map (SW => std_logic_vector(vel_vector(0))(3 downto 0), HEX => HEX0);
+	deb1: work.bin2hex port map (SW => std_logic_vector(vel_vector(1))(3 downto 0), HEX => HEX1);
+	deb2: work.bin2hex port map (SW => std_logic_vector(vel_w(0))(3 downto 0), HEX => HEX2);
+	deb3: work.bin2hex port map (SW => std_logic_vector(vel_w(1))(3 downto 0), HEX => HEX3);
+	deb4: work.bin2hex port map (SW => std_logic_vector(vel_vector_q(0))(3 downto 0), HEX => HEX4);
+	deb5: work.bin2hex port map (SW => std_logic_vector(vel_vector_q(1))(3 downto 0), HEX => HEX5);
+	ledr(9 downto 7) <= choice;
 	-- VGA rtl
 	-- Aqui instanciamos o controlador de vídeo, 128 colunas por 96 linhas
 	-- (aspect ratio 4:3). Os sinais que iremos utilizar para comunicar
@@ -201,7 +200,19 @@ begin
 	begin
 		if CLOCK_50'event and CLOCK_50 = '1' then
 			if get_velocity = '1' then
-				t_vel := vel_vector;
+				case choice is
+					when W =>
+						t_vel := vel_w;
+					when S =>
+						t_vel := vel_s;
+					when D =>
+						t_vel := vel_d;
+					when A =>
+						t_vel := vel_a;
+					when SPACE =>
+						t_vel := vel_vector;
+					when others =>
+				end case;
 			else
 				t_vel := t_vel;
 			end if;
@@ -218,17 +229,19 @@ begin
 	
 	-- change pos
 	p_change_pos: process(CLOCK_50)
-		variable new_pos_x : integer range 0 to 127 := pos_x;
+	   variable new_pos_x : integer range 0 to 127 := pos_x;
 		variable new_pos_y : integer range 0 to 95 := pos_y;
 	begin
 		if CLOCK_50'event and CLOCK_50 = '1' then
 			if get_velocity = '0' AND change_pos = '1' AND change_pos_q = '0' then
 				new_pos_x := pos_x + to_integer(vel_vector_q(0));
 				new_pos_y := pos_y + to_integer(vel_vector_q(1));
+				vel_vector <= vel_vector_q;
 			else
 				new_pos_x := pos_x;
 				new_pos_y := pos_y;
-			end if;
+				vel_vector <= vel_vector;
+			end if;	
 		end if;
 		pos_x <= new_pos_x;
 		pos_y <= new_pos_y;
@@ -240,7 +253,11 @@ begin
 															key_on => key_on,
 															key_code => key_code,
 															vector => vel_vector,
-															led => LEDR(9 downto 5)
+															vector_w => vel_w,
+															vector_s => vel_s,
+															vector_a => vel_a,
+															vector_d => vel_d,
+															choice => choice
 														);
 	-----------------------------------------------------------------------------
 	-- Brilho do pixel
@@ -259,6 +276,14 @@ begin
 				pixel <= "111";
 			elsif (col = pos_x + to_integer(vel_vector(0))) AND (line = pos_y + to_integer(vel_vector(1))) then
 				pixel <= "100";
+			elsif (col = pos_x + to_integer(vel_w(0))) AND (line = pos_y + to_integer(vel_w(1))) then
+				pixel <= "101";
+			elsif (col = pos_x + to_integer(vel_s(0))) AND (line = pos_y + to_integer(vel_s(1))) then
+				pixel <= "101";
+			elsif (col = pos_x + to_integer(vel_a(0))) AND (line = pos_y + to_integer(vel_a(1))) then
+				pixel <= "101";
+			elsif (col = pos_x + to_integer(vel_d(0))) AND (line = pos_y + to_integer(vel_d(1))) then
+				pixel <= "101";
 			else 
 				pixel <= "000";
 			end if;
