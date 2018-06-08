@@ -13,6 +13,8 @@ entity vector_racing is
 		VGA_CLK                   	: out std_logic;
 		PS2_DAT 							: inout STD_LOGIC;
 		PS2_CLK 							: inout STD_LOGIC;
+		-- DEBUG
+		LEDR								: out std_logic_vector(9 downto 0);
 		HEX0								: out std_logic_vector(6 downto 0);
 		HEX1								: out std_logic_vector(6 downto 0);
 		HEX2								: out std_logic_vector(6 downto 0);
@@ -82,6 +84,12 @@ architecture rtl of vector_racing is
 	signal change_pos_q: std_logic;
 	signal change_pos: std_logic;
 begin 
+	-- DEBUG
+	LEDR(0) <= key_on(0);
+	LEDR(1) <= key_on(1);
+	LEDR(2) <= key_on(2);
+	LEDR(3) <= get_velocity;
+	LEDR(4) <= change_pos;
 	debug_1: work.bin2hex port map (SW => std_logic_vector(vel_vector(0))(3 downto 0), HEX => HEX0);
 	debug_2: work.bin2hex port map (SW => std_logic_vector(vel_vector(1))(3 downto 0), HEX => HEX1);
 	debug_3: work.bin2hex port map (SW => std_logic_vector(vel_vector_q(0))(3 downto 0), HEX => HEX2);
@@ -231,7 +239,8 @@ begin
 	preview_process: work.preview port map (	clk => CLOCK_50,
 															key_on => key_on,
 															key_code => key_code,
-															vector => vel_vector
+															vector => vel_vector,
+															led => LEDR(9 downto 5)
 														);
 	-----------------------------------------------------------------------------
 	-- Brilho do pixel
