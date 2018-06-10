@@ -6,36 +6,31 @@ use work.vracing_pack.all;
 entity vector_racing is 
 	port (
 		CLOCK_50                  	: in  std_logic;
-		KEY                       	: in  std_logic_vector(2 downto 0);
+		KEY                       	: in  std_logic_vector(0 downto 0);
 		VGA_R, VGA_G, VGA_B       	: out std_logic_vector(7 downto 0);
 		VGA_HS, VGA_VS            	: out std_logic;
 		VGA_BLANK_N, VGA_SYNC_N   	: out std_logic;
 		VGA_CLK                   	: out std_logic;
 		PS2_DAT 							: inout STD_LOGIC;
-		PS2_CLK 							: inout STD_LOGIC;
-		HEX0, HEX1						: out std_logic_vector(6 downto 0);
-		HEX2, HEX3						: out std_logic_vector(6 downto 0);
-		HEX4, HEX5						: out std_logic_vector(6 downto 0);
-		LEDR								: out std_logic_vector(9 downto 0)
+		PS2_CLK 							: inout STD_LOGIC
 	);
 end vector_racing;
 
 architecture rtl of vector_racing is
-	-- VGA stuff
 	signal rstn : std_logic;              -- reset active low para nossos
 												 -- circuitos sequenciais.
 
 	-- Interface com a memória de vídeo do controlador
 
 	signal we : std_logic;                        -- write enable ('1' p/ escrita)
-	signal addr : integer range 0 to 12287;       -- endereco mem. vga
-	signal pixel : std_logic_vector(2 downto 0);  -- valor de cor do pixel
+	signal addr : integer range 0 to ADDR_MAX;       -- endereco mem. vga
+	signal pixel : pixel_t;  -- valor de cor do pixel
 
 	-- Sinais dos contadores de linhas e colunas utilizados para percorrer
 	-- as posições da memória de vídeo (pixels) no momento de construir um quadro.
   
-	signal line : integer range 0 to 95;  -- linha atual
-	signal col : integer range 0 to 127;  -- coluna atual
+	signal line : integer range 0 to V_PIXELS-1;  -- linha atual
+	signal col : integer range 0 to H_PIXELS-1;  -- coluna atual
 
 	signal col_rstn : std_logic;          -- reset do contador de colunas
 	signal col_enable : std_logic;        -- enable do contador de colunas
@@ -49,8 +44,8 @@ architecture rtl of vector_racing is
 	-- Sinais que armazem a posição de uma bola, que deverá ser desenhada
 	-- na tela de acordo com sua posição.
 
-	signal pos_x : integer range 0 to 127 := 30;  -- coluna atual da bola
-	signal pos_y : integer range 0 to 95 := 30;   -- linha atual da bola
+	signal pos_x : integer range 0 to H_PIXELS-1 := 30;  -- coluna atual da bola
+	signal pos_y : integer range 0 to V_PIXELS-1 := 30;   -- linha atual da bola
 	
 	signal vel_vector : velocity_t := SOME_V;
 	signal vel_vector_q : velocity_t := ZERO_V;
@@ -69,8 +64,8 @@ architecture rtl of vector_racing is
 	signal timer : std_logic;        -- vale '1' quando o contador chegar ao fim
 	signal timer_rstn, timer_enable : std_logic;
   
-	signal sync, blank: std_logic;
-  
+	
+	signal update_pixel : std_logic := '0';
 	-- KBD stuff
   
 	signal key_on : std_logic_vector(2 downto 0);
@@ -80,46 +75,22 @@ architecture rtl of vector_racing is
 	
 	-- new stuff
 	signal get_velocity : std_logic;
-	signal change_pos_q: std_logic;
-	signal change_pos: std_logic;
+	signal get_velocity_q : std_logic;
 	
 	signal choice : std_logic_vector(2 downto 0);
+	signal reset : std_logic;
 begin 
-	-- DEBUG
-	deb0: work.bin2hex port map (SW => std_logic_vector(vel_vector(0))(3 downto 0), HEX => HEX0);
-	deb1: work.bin2hex port map (SW => std_logic_vector(vel_vector(1))(3 downto 0), HEX => HEX1);
-	deb2: work.bin2hex port map (SW => std_logic_vector(vel_w(0))(3 downto 0), HEX => HEX2);
-	deb3: work.bin2hex port map (SW => std_logic_vector(vel_w(1))(3 downto 0), HEX => HEX3);
-	deb4: work.bin2hex port map (SW => std_logic_vector(vel_vector_q(0))(3 downto 0), HEX => HEX4);
-	deb5: work.bin2hex port map (SW => std_logic_vector(vel_vector_q(1))(3 downto 0), HEX => HEX5);
-	ledr(9 downto 7) <= choice;
-	-- VGA rtl
-	-- Aqui instanciamos o controlador de vídeo, 128 colunas por 96 linhas
-	-- (aspect ratio 4:3). Os sinais que iremos utilizar para comunicar
-	-- com a memória de vídeo (para alterar o brilho dos pixels) são
-	-- write_clk (nosso clock), write_enable ('1' quando queremos escrever
-	-- o valor de um pixel), write_addr (endereço do pixel a escrever)
-	-- e data_in (valor do brilho do pixel RGB, 1 bit pra cada componente de cor)
-	vga_controller: entity work.vgacon generic map (NUM_HORZ_PIXELS => 128, NUM_VERT_PIXELS => 96) 
-											port map (
-												clk50M       => CLOCK_50,
-												rstn         => '1',
-												red          => VGA_R,
-												green        => VGA_G,
-												blue         => VGA_B,
-												hsync        => VGA_HS,
-												vsync        => VGA_VS,
-												write_clk    => CLOCK_50,
-												write_enable => we,
-												write_addr   => addr,
-												data_in      => pixel,
-												vga_clk      => VGA_CLK,
-												sync         => sync,
-												blank        => blank
+	video_output_controller: work.video_output port map (
+		clk => CLOCK_50,
+		vga_r => VGA_R, vga_g => VGA_G, vga_b => VGA_B,
+		vga_hs => VGA_HS, vga_vs => VGA_VS,
+		vga_blank_n => VGA_BLANK_N, vga_sync_n => VGA_SYNC_N,
+		vga_clk => VGA_CLK,
+		ps2_dat => PS2_DAT, ps2_clk => PS2_CLK,
+		we => we,
+		addr => addr,
+		data => pixel
 	);
-	VGA_SYNC_N <= NOT sync;
-	VGA_BLANK_N <= NOT blank;
-
 	-----------------------------------------------------------------------------
 	-- Processos que controlam contadores de linhas e coluna para varrer
 	-- todos os endereços da memória de vídeo, no momento de construir um quadro.
@@ -173,27 +144,6 @@ begin
 	fim_escrita <= '1' when (line = 95) and (col = 127)
 						else '0'; 
 	
-	
-	-- sync switch 
-	
-	build_get_vel: process (CLOCK_50)
-		variable temp : std_logic;          -- flipflop intermediario
-	begin  -- process build_rstn
-		if CLOCK_50'event and CLOCK_50 = '1' then  -- rising clock edge
-			get_velocity <= temp;
-			temp := not(KEY(1));      
-		end if;
-	end process build_get_vel;
-	
-	build_change_pos: process (CLOCK_50)
-		variable temp : std_logic;          -- flipflop intermediario
-	begin  -- process build_rstn
-		if CLOCK_50'event and CLOCK_50 = '1' then  -- rising clock edge
-			change_pos <= temp;
-			temp := not(KEY(2));
-		end if;
-	end process build_change_pos;
-	
 	-- get the velocity
 	p_get_vel: process (CLOCK_50)
 		variable t_vel: velocity_t := ZERO_V;
@@ -220,10 +170,12 @@ begin
 		vel_vector_q <= t_vel;
 	end process p_get_vel;
 	
-	process (CLOCK_50)
+	process(CLOCK_50)
+		variable temp: std_logic;
 	begin
 		if CLOCK_50'event and CLOCK_50 = '1' then
-			change_pos_q <= change_pos;
+			temp := get_velocity;
+			get_velocity_q <= temp;
 		end if;
 	end process;
 	
@@ -231,22 +183,25 @@ begin
 	p_change_pos: process(CLOCK_50)
 	   variable new_pos_x : integer range 0 to 127 := pos_x;
 		variable new_pos_y : integer range 0 to 95 := pos_y;
+		variable t : std_logic := '0';
 	begin
 		if CLOCK_50'event and CLOCK_50 = '1' then
-			if get_velocity = '0' AND change_pos = '1' AND change_pos_q = '0' then
+			if get_velocity_q = '1' and get_velocity = '0' then
 				new_pos_x := pos_x + to_integer(vel_vector_q(0));
 				new_pos_y := pos_y + to_integer(vel_vector_q(1));
 				vel_vector <= vel_vector_q;
+				t := '1';
 			else
 				new_pos_x := pos_x;
 				new_pos_y := pos_y;
 				vel_vector <= vel_vector;
+				t := '0';
 			end if;	
+			reset <= t;
 		end if;
 		pos_x <= new_pos_x;
 		pos_y <= new_pos_y;
 	end process p_change_pos;
-	
 	-- Cuida do preview da posicao que o jogador chegaria com o vetor atual 
 	-- e seleciona o input tambem
 	preview_process: work.preview port map (	clk => CLOCK_50,
@@ -257,6 +212,8 @@ begin
 															vector_s => vel_s,
 															vector_a => vel_a,
 															vector_d => vel_d,
+															get_vel => get_velocity,
+															reset => '1',
 															choice => choice
 														);
 	-----------------------------------------------------------------------------
@@ -267,25 +224,32 @@ begin
 	-- posição da bola (sinais pos_x e pos_y). Caso contrário,
 	-- o pixel é preto.
   
-	put_color: process (rstn) 
+	put_color: process (CLOCK_50, rstn) 
 	begin
 		if rstn = '0' then
-			pixel <= "000";
-		else
+			pixel <= "001";
+			update_pixel <= '0';
+		elsif rising_edge(CLOCK_50) then
 			if col = pos_x AND line = pos_y then
-				pixel <= "111";
+				pixel <= "001";
+				update_pixel <= '1';
 			elsif (col = pos_x + to_integer(vel_vector(0))) AND (line = pos_y + to_integer(vel_vector(1))) then
 				pixel <= "100";
+				update_pixel <= '1';
 			elsif (col = pos_x + to_integer(vel_w(0))) AND (line = pos_y + to_integer(vel_w(1))) then
 				pixel <= "101";
+				update_pixel <= '1';
 			elsif (col = pos_x + to_integer(vel_s(0))) AND (line = pos_y + to_integer(vel_s(1))) then
 				pixel <= "101";
+				update_pixel <= '1';
 			elsif (col = pos_x + to_integer(vel_a(0))) AND (line = pos_y + to_integer(vel_a(1))) then
 				pixel <= "101";
+				update_pixel <= '1';
 			elsif (col = pos_x + to_integer(vel_d(0))) AND (line = pos_y + to_integer(vel_d(1))) then
 				pixel <= "101";
-			else 
-				pixel <= "000";
+				update_pixel <= '1';
+			else
+				update_pixel <= '0';
 			end if;
 		end if;
 	end process put_color;
@@ -331,7 +295,7 @@ begin
 										line_enable    <= '1';
 										col_rstn       <= '1';
 										col_enable     <= '1';
-										we             <= '1';
+										we             <= update_pixel;
 										timer_rstn     <= '0'; 
 										timer_enable   <= '0';
 	
@@ -440,7 +404,7 @@ begin
 			clk => CLOCK_50,
 			en => '1',
 			resetn => '1',
-			lights => "000",
+			lights => "111",
 			key_on => key_on,
 			key_code => key_code
 		);
