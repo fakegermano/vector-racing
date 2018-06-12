@@ -12,7 +12,8 @@ entity vector_racing is
 		VGA_BLANK_N, VGA_SYNC_N   	: out std_logic;
 		VGA_CLK                   	: out std_logic;
 		PS2_DAT 							: inout STD_LOGIC;
-		PS2_CLK 							: inout STD_LOGIC
+		PS2_CLK 							: inout STD_LOGIC;
+		LEDR								: out STD_LOGIC_VECTOR(9 downto 0)
 	);
 end vector_racing;
 
@@ -44,10 +45,11 @@ architecture rtl of vector_racing is
 	-- Sinais que armazem a posição de uma bola, que deverá ser desenhada
 	-- na tela de acordo com sua posição.
 
-	signal pos_x : integer range 0 to H_PIXELS-1 := 30;  -- coluna atual da bola
-	signal pos_y : integer range 0 to V_PIXELS-1 := 30;   -- linha atual da bola
+	signal pos_x : integer range 0 to H_PIXELS-1 := INI_X;  -- coluna atual da bola
+	signal pos_y : integer range 0 to V_PIXELS-1 := INI_Y;   -- linha atual da bola
 	
-	signal vel_vector : velocity_t := SOME_V;
+	
+	signal vel_vector : velocity_t := ZERO_V;
 	signal vel_vector_q : velocity_t := ZERO_V;
 	signal vel_w, vel_s, vel_a, vel_d : velocity_t := ZERO_V;
 	-- Especificação dos tipos e sinais da máquina de estados de controle
@@ -63,9 +65,7 @@ architecture rtl of vector_racing is
 	signal contador : integer range 0 to 1250000 - 1;  -- contador
 	signal timer : std_logic;        -- vale '1' quando o contador chegar ao fim
 	signal timer_rstn, timer_enable : std_logic;
-  
 	
-	signal update_pixel : std_logic := '0';
 	-- KBD stuff
   
 	signal key_on : std_logic_vector(2 downto 0);
@@ -79,6 +79,15 @@ architecture rtl of vector_racing is
 	
 	signal choice : std_logic_vector(2 downto 0);
 	signal reset : std_logic;
+	
+	signal track_pixel : pixel_t;
+	signal reset_alt : std_logic;
+	
+	signal rstn_full : std_logic;
+	signal collision : std_logic;
+	signal got_out : std_logic;
+	
+	signal game_over_signal	: std_logic;
 begin 
 	video_output_controller: work.video_output port map (
 		clk => CLOCK_50,
@@ -89,8 +98,14 @@ begin
 		ps2_dat => PS2_DAT, ps2_clk => PS2_CLK,
 		we => we,
 		addr => addr,
-		data => pixel
+		data => pixel,
+		reset => rstn_full,
+		collide => collision,
+		game_over => game_over_signal
 	);
+	LEDR(0) <= rstn;
+	LEDR(1) <= reset_alt;
+	rstn_full <= rstn AND reset_alt;
 	-----------------------------------------------------------------------------
 	-- Processos que controlam contadores de linhas e coluna para varrer
 	-- todos os endereços da memória de vídeo, no momento de construir um quadro.
@@ -105,7 +120,7 @@ begin
 	begin  -- process conta_coluna
 		if col_rstn = '0' then                  -- asynchronous reset (active low)
 			col <= 0;
-		elsif CLOCK_50'event and CLOCK_50 = '1' then  -- rising clock edge
+		elsif rising_edge(CLOCK_50) then  -- rising clock edge
 			if col_enable = '1' then
 				if col = 127 then               -- conta de 0 a 127 (128 colunas)
 					col <= 0;
@@ -125,7 +140,7 @@ begin
 	begin  -- process conta_linha
 		if line_rstn = '0' then                  -- asynchronous reset (active low)
 			line <= 0;
-		elsif CLOCK_50'event and CLOCK_50 = '1' then  -- rising clock edge
+		elsif rising_edge(CLOCK_50) then  -- rising clock edge
 			-- o contador de linha só incrementa quando o contador de colunas
 			-- chegou ao fim (valor 127)
 			if line_enable = '1' and col = 127 then
@@ -148,7 +163,7 @@ begin
 	p_get_vel: process (CLOCK_50)
 		variable t_vel: velocity_t := ZERO_V;
 	begin
-		if CLOCK_50'event and CLOCK_50 = '1' then
+		if rising_edge(CLOCK_50) then
 			if get_velocity = '1' then
 				case choice is
 					when W =>
@@ -173,7 +188,7 @@ begin
 	process(CLOCK_50)
 		variable temp: std_logic;
 	begin
-		if CLOCK_50'event and CLOCK_50 = '1' then
+		if rising_edge(CLOCK_50) then
 			temp := get_velocity;
 			get_velocity_q <= temp;
 		end if;
@@ -181,26 +196,33 @@ begin
 	
 	-- change pos
 	p_change_pos: process(CLOCK_50)
-	   variable new_pos_x : integer range 0 to 127 := pos_x;
-		variable new_pos_y : integer range 0 to 95 := pos_y;
-		variable t : std_logic := '0';
+		variable r : std_logic := '0';
 	begin
-		if CLOCK_50'event and CLOCK_50 = '1' then
+		if rstn_full = '0' then
+			pos_x <= INI_X;
+			pos_y <= INI_Y;
+			vel_vector <= ZERO_V;
+			r := '0';
+			got_out <= '0';
+		elsif rising_edge(CLOCK_50) then
 			if get_velocity_q = '1' and get_velocity = '0' then
-				new_pos_x := pos_x + to_integer(vel_vector_q(0));
-				new_pos_y := pos_y + to_integer(vel_vector_q(1));
+				pos_x <= pos_x + to_integer(vel_vector_q(0));
+				pos_y <= pos_y + to_integer(vel_vector_q(1));
 				vel_vector <= vel_vector_q;
-				t := '1';
+				r := '0';
 			else
-				new_pos_x := pos_x;
-				new_pos_y := pos_y;
+				pos_x <= pos_x;
+				pos_y <= pos_y;
 				vel_vector <= vel_vector;
-				t := '0';
-			end if;	
-			reset <= t;
+				r := '1';
+			end if;
+			if pos_x >= H_PIXELS OR pos_y >= V_PIXELS OR pos_x < 0 OR pos_y < 0 then
+				got_out <= '1';
+			else
+				got_out <= '0';
+			end if;
 		end if;
-		pos_x <= new_pos_x;
-		pos_y <= new_pos_y;
+		reset <= r;
 	end process p_change_pos;
 	-- Cuida do preview da posicao que o jogador chegaria com o vetor atual 
 	-- e seleciona o input tambem
@@ -213,9 +235,38 @@ begin
 															vector_a => vel_a,
 															vector_d => vel_d,
 															get_vel => get_velocity,
-															reset => '1',
+															reset => reset,
 															choice => choice
 														);
+	collision_detection: process (CLOCK_50) 
+		variable t : std_logic := '1';
+	begin
+		if rstn_full = '0' then
+			t := '1';
+		elsif rising_edge(CLOCK_50) then
+			if game_over_signal = '1' AND get_velocity = '0' AND get_velocity_q = '1' then
+				t := '0';
+			else
+				t := t;
+			end if;
+		end if;
+		reset_alt <= t;
+	end process collision_detection;
+	
+	game_over: process (CLOCK_50)
+		variable t : std_logic := '0';
+	begin
+		if rstn_full = '0' then 
+			t := '0';
+		elsif rising_edge(CLOCK_50) then
+			if collision = '1' OR got_out = '1' then
+				t := '1';
+			else
+				t := t;
+			end if;
+		end if;
+		game_over_signal <= t;
+	end process game_over;
 	-----------------------------------------------------------------------------
 	-- Brilho do pixel
 	-----------------------------------------------------------------------------
@@ -226,30 +277,43 @@ begin
   
 	put_color: process (CLOCK_50, rstn) 
 	begin
-		if rstn = '0' then
-			pixel <= "001";
-			update_pixel <= '0';
+		if rstn_full = '0' then
+			pixel <= BLACK;
 		elsif rising_edge(CLOCK_50) then
 			if col = pos_x AND line = pos_y then
-				pixel <= "001";
-				update_pixel <= '1';
+				pixel <= BLUE;
 			elsif (col = pos_x + to_integer(vel_vector(0))) AND (line = pos_y + to_integer(vel_vector(1))) then
-				pixel <= "100";
-				update_pixel <= '1';
+				if choice = SPACE then
+					pixel <= RED;
+				else
+					pixel <= PINK;
+				end if;
 			elsif (col = pos_x + to_integer(vel_w(0))) AND (line = pos_y + to_integer(vel_w(1))) then
-				pixel <= "101";
-				update_pixel <= '1';
-			elsif (col = pos_x + to_integer(vel_s(0))) AND (line = pos_y + to_integer(vel_s(1))) then
-				pixel <= "101";
-				update_pixel <= '1';
+				if choice = W then
+					pixel <= RED;
+				else
+					pixel <= PINK;
+				end if;
 			elsif (col = pos_x + to_integer(vel_a(0))) AND (line = pos_y + to_integer(vel_a(1))) then
-				pixel <= "101";
-				update_pixel <= '1';
+				if choice = A then
+					pixel <= RED;
+				else
+					pixel <= PINK;
+				end if;
+			elsif (col = pos_x + to_integer(vel_s(0))) AND (line = pos_y + to_integer(vel_s(1))) then
+				if choice = S then
+					pixel <= RED;
+				else
+					pixel <= PINK;
+				end if;
 			elsif (col = pos_x + to_integer(vel_d(0))) AND (line = pos_y + to_integer(vel_d(1))) then
-				pixel <= "101";
-				update_pixel <= '1';
-			else
-				update_pixel <= '0';
+				if choice = D then
+					pixel <= RED;
+				else
+					pixel <= PINK;
+				end if;
+			else 
+				pixel <= BLACK;
 			end if;
 		end if;
 	end process put_color;
@@ -295,7 +359,7 @@ begin
 										line_enable    <= '1';
 										col_rstn       <= '1';
 										col_enable     <= '1';
-										we             <= update_pixel;
+										we             <= '1';
 										timer_rstn     <= '0'; 
 										timer_enable   <= '0';
 	
@@ -330,9 +394,9 @@ begin
 	-- outputs: estado
 	seq_fsm: process (CLOCK_50, rstn)
 	begin  -- process seq_fsm
-		if rstn = '0' then                  -- asynchronous reset (active low)
+		if rstn_full = '0' then                  -- asynchronous reset (active low)
 			estado <= show_splash;
-		elsif CLOCK_50'event and CLOCK_50 = '1' then  -- rising clock edge
+		elsif rising_edge(CLOCK_50) then  -- rising clock edge
 			estado <= proximo_estado;
 		end if;
 	end process seq_fsm;
@@ -349,7 +413,7 @@ begin
 	begin  -- process p_contador
 		if timer_rstn = '0' then            -- asynchronous reset (active low)
 			contador <= 0;
-		elsif CLOCK_50'event and CLOCK_50 = '1' then  -- rising clock edge
+		elsif rising_edge(CLOCK_50) then  -- rising clock edge
 			if timer_enable = '1' then       
 				if contador = 1250000 - 1 then
 					contador <= 0;
@@ -387,7 +451,7 @@ begin
 	build_rstn: process (CLOCK_50)
 		variable temp : std_logic;          -- flipflop intermediario
 	begin  -- process build_rstn
-		if CLOCK_50'event and CLOCK_50 = '1' then  -- rising clock edge
+		if rising_edge(CLOCK_50) then  -- rising clock edge
 			rstn <= temp;
 			temp := KEY(0);      
 		end if;

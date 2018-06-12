@@ -55,10 +55,10 @@ begin
 	end process preview;
 	
 	process (clk) 
-		variable inc_w : velocity_t := (to_signed(0, V_WSIZE), to_signed(-1, V_WSIZE));
-		variable inc_s : velocity_t := (to_signed(0, V_WSIZE), to_signed(1, V_WSIZE));
-		variable inc_a : velocity_t := (to_signed(-1, V_WSIZE), to_signed(0, V_WSIZE));
-		variable inc_d : velocity_t := (to_signed(1, V_WSIZE), to_signed(0, V_WSIZE));
+		variable inc_w : velocity_t := (to_signed(0, V_WSIZE), to_signed(SPEED_DOWN, V_WSIZE));
+		variable inc_s : velocity_t := (to_signed(0, V_WSIZE), to_signed(SPEED_UP, V_WSIZE));
+		variable inc_a : velocity_t := (to_signed(SPEED_DOWN, V_WSIZE), to_signed(0, V_WSIZE));
+		variable inc_d : velocity_t := (to_signed(SPEED_UP, V_WSIZE), to_signed(0, V_WSIZE));
 	begin
 		if clk'event and clk = '1' then
 			vector_w(0) <= vector(0) + inc_w(0);

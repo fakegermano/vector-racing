@@ -12,15 +12,16 @@ entity video_output is
 		ps2_dat, ps2_clk 			: inout std_logic;
 		we								: in std_logic;
 		addr							: in integer range 0 to ADDR_MAX;
-		data 							: in pixel_t
+		data 							: in pixel_t;
+		reset 						: in std_logic;
+		collide						: out std_logic;
+		game_over					: in std_logic
 	);
 end video_output;
 
 architecture rtl of video_output is
 	signal sync, blank : std_logic;
-	signal temp : pixel_t;
-	signal to_blit : pixel_t;
-	signal save_to_screen : std_logic;
+	signal screen_p, track_p, to_screen, over_p : pixel_t;
 begin
 	-- VGA rtl
 	-- Aqui instanciamos o controlador de vídeo, 128 colunas por 96 linhas
@@ -41,7 +42,7 @@ begin
 												write_clk    => clk,
 												write_enable => we,
 												write_addr   => addr,
-												data_in      => temp,
+												data_in      => to_screen,
 												vga_clk      => vga_clk,
 												sync         => sync,
 												blank        => blank
@@ -49,13 +50,58 @@ begin
 	vga_sync_n <= NOT sync;
 	vga_blank_n <= NOT blank;
 	
+	process (clk)
+		variable pix : pixel_t;
+	begin
+		if rising_edge(clk) then
+			if game_over = '1' then 
+				pix := over_p;
+			elsif track_p = WHITE AND screen_p /= BLACK then
+				pix := screen_p;
+			elsif track_p = BLACK AND screen_p = YELLOW then
+				pix := screen_p;
+			elsif track_p = WHITE AND data /= BLACK then
+				pix := data;
+			elsif track_p = BLACK AND data /= BLACK then
+				pix := data;
+			else 
+				pix := track_p;
+			end if;
+		end if;
+		to_screen <= pix;
+	end process;
+	
+	process (clk, reset)
+		variable col : std_logic := '0';
+	begin
+		if reset = '0' then
+			col := '0';
+			collide <= col;
+		elsif rising_edge(clk) then
+			if data = BLUE and track_p = WHITE then
+				col := '1';
+			else
+				col := col;
+			end if;
+			collide <= col;
+		end if;
+	end process;
 	
 	screen_ram: work.screen_ram port map (
 		clk => clk,
 		raddr => addr,
-		waddr	=> addr,
-		data => data,
-		we => we,
-		q => temp
+		q => screen_p
+	);
+	
+	track_ram: work.track_ram port map (
+		clk => clk,
+		raddr => addr,
+		q => track_p
+	);
+	
+	over_ram: work.over_ram port map (
+		clk => clk,
+		raddr => addr,
+		q => over_p
 	);
 end rtl;

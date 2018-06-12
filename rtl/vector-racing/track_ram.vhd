@@ -6,20 +6,20 @@ library ieee;
 use ieee.std_logic_1164.all;
 use work.vracing_pack.all;
 
-entity screen_ram is
+entity track_ram is
 	port
 	(
 		clk		: in std_logic;
 		raddr		: in natural range 0 to ADDR_MAX;
 		q			: out pixel_t
 	);
-end screen_ram;
+end track_ram;
 
-architecture rtl of screen_ram is
+architecture rtl of track_ram is
 	-- Declare the RAM signal.	
 	signal ram : screen_mem;
 	attribute ram_init_file : string;
-	attribute ram_init_file of ram : signal is "Screen.mif";
+	attribute ram_init_file of ram : signal is "Track101.mif";
 begin
 	process(clk)
 	begin
