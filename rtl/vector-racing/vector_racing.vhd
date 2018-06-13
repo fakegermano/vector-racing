@@ -13,7 +13,7 @@ entity vector_racing is
 		VGA_CLK                   	: out std_logic;
 		PS2_DAT 							: inout STD_LOGIC;
 		PS2_CLK 							: inout STD_LOGIC;
-		LEDR								: out STD_LOGIC_VECTOR(9 downto 0)
+		HEX0, HEX1						: out std_logic_vector(6 downto 0)
 	);
 end vector_racing;
 
@@ -54,7 +54,7 @@ architecture rtl of vector_racing is
 	signal vel_vector_q : velocity_t := ZERO_V;
 	signal vel_w, vel_s, vel_a, vel_d : velocity_t := ZERO_V;
 	-- Especificação dos tipos e sinais da máquina de estados de controle
-	type estado_t is (show_splash, inicio, constroi_quadro, move_bola);
+	type estado_t is (show_splash, inicio, constroi_quadro);
 	signal estado: estado_t := show_splash;
 	signal proximo_estado: estado_t := show_splash;
 
@@ -92,15 +92,23 @@ architecture rtl of vector_racing is
 	
 	signal game_over_signal	: std_logic;
 	signal wrong_way_signal : std_logic;
+	
+	signal moved : std_logic;
+	signal enter_counter_u, enter_counter_d : std_logic_vector(3 downto 0);
+	
+	signal reset_game_over : std_logic;
+	signal reset_has_finished : std_logic;
+	
+	signal start_button : std_logic;
 begin 
 
-	LEDR(9) <= has_finished;
-	LEDR(8) <= got_out;
-	LEDR(7) <= collision;
-	LEDR(6) <= wrong_way_signal;
-	LEDR(5) <= game_over_signal;
-	LEDR(4) <= key_on(0);
-	LEDR(3) <= key_on_q(0);
+	--LEDR(9) <= has_finished;
+	--LEDR(8) <= got_out;
+	--LEDR(7) <= collision;
+	--LEDR(6) <= wrong_way_signal;
+	--LEDR(5) <= game_over_signal;
+	--LEDR(4) <= key_on(0);
+	--LEDR(3) <= key_on_q(0);
 	video_output_controller: work.video_output port map (
 		clk => CLOCK_50,
 		vga_r => VGA_R, vga_g => VGA_G, vga_b => VGA_B,
@@ -116,9 +124,11 @@ begin
 		game_over => game_over_signal,
 		finish => has_finished
 	);
-	LEDR(0) <= rstn;
-	LEDR(1) <= reset_alt;
-	rstn_full <= rstn AND reset_alt;
+	--LEDR(0) <= rstn;
+	--LEDR(1) <= reset_alt;
+	rstn_full <= rstn AND reset_game_over AND reset_has_finished;
+	enter_u: work.bin2hex port map (SW => enter_counter_u, HEX => HEX0);
+	enter_d: work.bin2hex port map (SW => enter_counter_d, HEX => HEX1);
 	-----------------------------------------------------------------------------
 	-- Processos que controlam contadores de linhas e coluna para varrer
 	-- todos os endereços da memória de vídeo, no momento de construir um quadro.
@@ -179,7 +189,7 @@ begin
 		if rstn_full = '0' then
 			t_vel := ZERO_V;
 		elsif rising_edge(CLOCK_50) then
-			if get_velocity = '1' then
+			if get_velocity = '1' AND game_over_signal /= '1' AND has_finished /= '1' then
 				case choice is
 					when W =>
 						t_vel := vel_w;
@@ -209,6 +219,13 @@ begin
 		end if;
 	end process;
 	
+	enter_coutet: work.binary_counter port map ( clk => CLOCK_50,
+																enable => moved,
+																reset => rstn_full,
+																q_u => enter_counter_u,
+																q_d => enter_counter_d
+	
+	);
 	victory_condition: work.victory_check port map (clk => CLOCK_50,
 																	reset => rstn_full,
 																	pos_x => old_pos_x,
@@ -216,10 +233,12 @@ begin
 																	new_pos_y => pos_y,
 																	finish => has_finished,
 																	wrong_way => wrong_way_signal
-																	);
+	);
+	
 	-- change pos
 	p_change_pos: process(CLOCK_50)
-		variable r : std_logic := '0';
+		variable r: std_logic := '0';
+		variable m: std_logic := '0';
 	begin
 		if rstn_full = '0' then
 			pos_x <= INI_X;
@@ -228,15 +247,17 @@ begin
 			old_pos_y <= INI_Y;
 			vel_vector <= ZERO_V;
 			r := '0';
+			m := '0';
 			got_out <= '0';
 		elsif rising_edge(CLOCK_50) then
-			if get_velocity_q = '1' and get_velocity = '0' then
+			if get_velocity_q = '1' AND get_velocity = '0' AND game_over_signal /= '1' AND has_finished /= '1' then
 				old_pos_x <= pos_x;
 				old_pos_y <= pos_y;
 				pos_x <= pos_x + to_integer(vel_vector_q(0));
 				pos_y <= pos_y + to_integer(vel_vector_q(1));
 				vel_vector <= vel_vector_q;
 				r := '0';
+				m := '1';
 			else
 				old_pos_x <= old_pos_x;
 				old_pos_y <= old_pos_y;
@@ -244,6 +265,7 @@ begin
 				pos_y <= pos_y;
 				vel_vector <= vel_vector;
 				r := '1';
+				m := '0';
 			end if;
 			if pos_x >= H_PIXELS OR pos_y >= V_PIXELS OR pos_x < 0 OR pos_y < 0 then
 				got_out <= '1';
@@ -252,6 +274,7 @@ begin
 			end if;
 		end if;
 		reset <= r;
+		moved <= m;
 	end process p_change_pos;
 	-- Cuida do preview da posicao que o jogador chegaria com o vetor atual 
 	-- e seleciona o input tambem
@@ -275,20 +298,54 @@ begin
 		end if;
 	end process;
 	
+	process (CLOCK_50)
+		variable t: std_logic := '0';
+	begin
+		if rstn_full = '0' then
+			t := '0';
+		elsif rising_edge(CLOCK_50) then
+			start_button <= t;
+			if key_on(0) = '1' and key_on_q(0) = '0' then
+				if key_code(7 downto 0) = x"2D" then -- R
+					t := '1';
+				else
+					t := t;
+				end if;
+			else
+				t := t;
+			end if;
+		end if;
+	end process;
+	
 	collision_detection: process (CLOCK_50) 
 		variable t : std_logic := '1';
 	begin
 		if rstn_full = '0' then
 			t := '1';
 		elsif rising_edge(CLOCK_50) then
-			if ((has_finished = '1' OR game_over_signal = '1') AND get_velocity = '0' AND get_velocity_q = '1') then
+			if game_over_signal = '1' AND start_button = '1' then
 				t := '0';
 			else
 				t := t;
 			end if;
 		end if;
-		reset_alt <= t;
+		reset_game_over <= t;
 	end process collision_detection;
+	
+	victory_detection: process (CLOCK_50) 
+		variable t : std_logic := '1';
+	begin
+		if rstn_full = '0' then
+			t := '1';
+		elsif rising_edge(CLOCK_50) then
+			if has_finished = '1' AND start_button = '1' then
+				t := '0';
+			else
+				t := t;
+			end if;
+		end if;
+		reset_has_finished <= t;
+	end process victory_detection;
 	
 	game_over: process (CLOCK_50)
 		variable t : std_logic := '0';
@@ -388,7 +445,7 @@ begin
 										timer_enable   <= '1';
 	
 			when constroi_quadro=> if fim_escrita = '1' then
-											proximo_estado <= move_bola;
+											proximo_estado <= inicio;
 										else
 											proximo_estado <= constroi_quadro;
 										end if;
@@ -397,15 +454,6 @@ begin
 										col_rstn       <= '1';
 										col_enable     <= '1';
 										we             <= '1';
-										timer_rstn     <= '0'; 
-										timer_enable   <= '0';
-	
-			when move_bola      => proximo_estado <= inicio;
-										line_rstn      <= '1';
-										line_enable    <= '0';
-										col_rstn       <= '1';
-										col_enable     <= '0';
-										we             <= '0';
 										timer_rstn     <= '0'; 
 										timer_enable   <= '0';
 	
