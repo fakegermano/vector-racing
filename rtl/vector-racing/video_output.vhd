@@ -15,13 +15,14 @@ entity video_output is
 		data 							: in pixel_t;
 		reset 						: in std_logic;
 		collide						: out std_logic;
-		game_over					: in std_logic
+		game_over					: in std_logic;
+		finish						: in std_logic
 	);
 end video_output;
 
 architecture rtl of video_output is
 	signal sync, blank : std_logic;
-	signal screen_p, track_p, to_screen, over_p : pixel_t;
+	signal screen_p, track_p, to_screen, over_p, victory_p : pixel_t;
 begin
 	-- VGA rtl
 	-- Aqui instanciamos o controlador de vídeo, 128 colunas por 96 linhas
@@ -56,6 +57,8 @@ begin
 		if rising_edge(clk) then
 			if game_over = '1' then 
 				pix := over_p;
+			elsif finish = '1' then
+				pix := victory_p;
 			elsif track_p = WHITE AND screen_p /= BLACK then
 				pix := screen_p;
 			elsif track_p = BLACK AND screen_p = YELLOW then
@@ -103,5 +106,11 @@ begin
 		clk => clk,
 		raddr => addr,
 		q => over_p
+	);
+	
+	victory_ram: work.victory_ram port map (
+		clk => clk,
+		raddr => addr,
+		q => victory_p
 	);
 end rtl;

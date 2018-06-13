@@ -21,6 +21,8 @@ package vracing_pack is
 	constant INI_Y : integer := 8;
 	constant V_PIXELS : integer := 96;
 	constant H_PIXELS : integer := 128;
+	subtype coord_y is integer range 0 to V_PIXELS-1;
+	subtype coord_x is integer range 0 to H_PIXELS-1;
 	constant ADDR_MAX : integer := (V_PIXELS * H_PIXELS) - 1;
 	
 	subtype pixel_t is std_logic_vector(2 downto 0);

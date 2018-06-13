@@ -30,8 +30,8 @@ architecture rtl of vector_racing is
 	-- Sinais dos contadores de linhas e colunas utilizados para percorrer
 	-- as posições da memória de vídeo (pixels) no momento de construir um quadro.
   
-	signal line : integer range 0 to V_PIXELS-1;  -- linha atual
-	signal col : integer range 0 to H_PIXELS-1;  -- coluna atual
+	signal line : coord_y;  -- linha atual
+	signal col : coord_x;  -- coluna atual
 
 	signal col_rstn : std_logic;          -- reset do contador de colunas
 	signal col_enable : std_logic;        -- enable do contador de colunas
@@ -45,9 +45,10 @@ architecture rtl of vector_racing is
 	-- Sinais que armazem a posição de uma bola, que deverá ser desenhada
 	-- na tela de acordo com sua posição.
 
-	signal pos_x : integer range 0 to H_PIXELS-1 := INI_X;  -- coluna atual da bola
-	signal pos_y : integer range 0 to V_PIXELS-1 := INI_Y;   -- linha atual da bola
-	
+	signal pos_x : coord_x := INI_X;  -- coluna atual da bola
+	signal pos_y : coord_y := INI_Y;   -- linha atual da bola
+	signal old_pos_x : coord_x;
+	signal old_pos_y : coord_y;
 	
 	signal vel_vector : velocity_t := ZERO_V;
 	signal vel_vector_q : velocity_t := ZERO_V;
@@ -87,8 +88,19 @@ architecture rtl of vector_racing is
 	signal collision : std_logic;
 	signal got_out : std_logic;
 	
+	signal has_finished : std_logic;
+	
 	signal game_over_signal	: std_logic;
+	signal wrong_way_signal : std_logic;
 begin 
+
+	LEDR(9) <= has_finished;
+	LEDR(8) <= got_out;
+	LEDR(7) <= collision;
+	LEDR(6) <= wrong_way_signal;
+	LEDR(5) <= game_over_signal;
+	LEDR(4) <= key_on(0);
+	LEDR(3) <= key_on_q(0);
 	video_output_controller: work.video_output port map (
 		clk => CLOCK_50,
 		vga_r => VGA_R, vga_g => VGA_G, vga_b => VGA_B,
@@ -101,7 +113,8 @@ begin
 		data => pixel,
 		reset => rstn_full,
 		collide => collision,
-		game_over => game_over_signal
+		game_over => game_over_signal,
+		finish => has_finished
 	);
 	LEDR(0) <= rstn;
 	LEDR(1) <= reset_alt;
@@ -163,7 +176,9 @@ begin
 	p_get_vel: process (CLOCK_50)
 		variable t_vel: velocity_t := ZERO_V;
 	begin
-		if rising_edge(CLOCK_50) then
+		if rstn_full = '0' then
+			t_vel := ZERO_V;
+		elsif rising_edge(CLOCK_50) then
 			if get_velocity = '1' then
 				case choice is
 					when W =>
@@ -194,6 +209,14 @@ begin
 		end if;
 	end process;
 	
+	victory_condition: work.victory_check port map (clk => CLOCK_50,
+																	reset => rstn_full,
+																	pos_x => old_pos_x,
+																	new_pos_x => pos_x,
+																	new_pos_y => pos_y,
+																	finish => has_finished,
+																	wrong_way => wrong_way_signal
+																	);
 	-- change pos
 	p_change_pos: process(CLOCK_50)
 		variable r : std_logic := '0';
@@ -201,16 +224,22 @@ begin
 		if rstn_full = '0' then
 			pos_x <= INI_X;
 			pos_y <= INI_Y;
+			old_pos_x <= INI_X;
+			old_pos_y <= INI_Y;
 			vel_vector <= ZERO_V;
 			r := '0';
 			got_out <= '0';
 		elsif rising_edge(CLOCK_50) then
 			if get_velocity_q = '1' and get_velocity = '0' then
+				old_pos_x <= pos_x;
+				old_pos_y <= pos_y;
 				pos_x <= pos_x + to_integer(vel_vector_q(0));
 				pos_y <= pos_y + to_integer(vel_vector_q(1));
 				vel_vector <= vel_vector_q;
 				r := '0';
 			else
+				old_pos_x <= old_pos_x;
+				old_pos_y <= old_pos_y;
 				pos_x <= pos_x;
 				pos_y <= pos_y;
 				vel_vector <= vel_vector;
@@ -235,16 +264,24 @@ begin
 															vector_a => vel_a,
 															vector_d => vel_d,
 															get_vel => get_velocity,
-															reset => reset,
+															reset => reset AND rstn_full,
 															choice => choice
 														);
+	
+	process (CLOCK_50)
+	begin
+		if rising_edge(CLOCK_50) then
+			key_on_q <= key_on;
+		end if;
+	end process;
+	
 	collision_detection: process (CLOCK_50) 
 		variable t : std_logic := '1';
 	begin
 		if rstn_full = '0' then
 			t := '1';
 		elsif rising_edge(CLOCK_50) then
-			if game_over_signal = '1' AND get_velocity = '0' AND get_velocity_q = '1' then
+			if ((has_finished = '1' OR game_over_signal = '1') AND get_velocity = '0' AND get_velocity_q = '1') then
 				t := '0';
 			else
 				t := t;
@@ -259,7 +296,7 @@ begin
 		if rstn_full = '0' then 
 			t := '0';
 		elsif rising_edge(CLOCK_50) then
-			if collision = '1' OR got_out = '1' then
+			if collision = '1' OR got_out = '1' OR wrong_way_signal = '1' then
 				t := '1';
 			else
 				t := t;
@@ -286,31 +323,31 @@ begin
 				if choice = SPACE then
 					pixel <= RED;
 				else
-					pixel <= PINK;
+					pixel <= BLACK;
 				end if;
 			elsif (col = pos_x + to_integer(vel_w(0))) AND (line = pos_y + to_integer(vel_w(1))) then
 				if choice = W then
 					pixel <= RED;
 				else
-					pixel <= PINK;
+					pixel <= BLACK;
 				end if;
 			elsif (col = pos_x + to_integer(vel_a(0))) AND (line = pos_y + to_integer(vel_a(1))) then
 				if choice = A then
 					pixel <= RED;
 				else
-					pixel <= PINK;
+					pixel <= BLACK;
 				end if;
 			elsif (col = pos_x + to_integer(vel_s(0))) AND (line = pos_y + to_integer(vel_s(1))) then
 				if choice = S then
 					pixel <= RED;
 				else
-					pixel <= PINK;
+					pixel <= BLACK;
 				end if;
 			elsif (col = pos_x + to_integer(vel_d(0))) AND (line = pos_y + to_integer(vel_d(1))) then
 				if choice = D then
 					pixel <= RED;
 				else
-					pixel <= PINK;
+					pixel <= BLACK;
 				end if;
 			else 
 				pixel <= BLACK;

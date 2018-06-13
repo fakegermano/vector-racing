@@ -73,9 +73,11 @@ begin
 	end process;
 	
 	process (clk)
-		variable temp : std_logic;
+		variable temp : std_logic := '0';
 	begin
-		if clk'event and clk = '1' then
+		if reset = '0' then
+			temp := '0';
+		elsif clk'event and clk = '1' then
 			get_vel <= temp;
 			if key_on(0) = '1' AND key_on_q(0) = '0' then
 				if key_code(7 downto 0) = x"5A" then -- enter
